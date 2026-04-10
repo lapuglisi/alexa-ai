@@ -1,0 +1,12 @@
+tab_spaces = 2
+
+style_edition = "2024"
+edition = "2024"
+
+brace_style = "AlwaysNextLine"
+
+control_brace_style = "AlwaysSameLine"
+
+format_strings = true
+
+normalize_comments = true

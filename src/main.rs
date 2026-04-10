@@ -1,64 +1,42 @@
-use actix_web::{App, HttpResponse, HttpServer, Responder, get, post};
-use env_logger::{Builder, Env};
-use serde::{Deserialize, Serialize};
-use std::{
-  env::{self, Args},
-  error::Error,
-  str::FromStr,
-};
+use actix_web::{App, HttpResponse, HttpServer, post};
+use env_logger::Env;
+use std::{env, error::Error, str::FromStr};
+
+use alexa::{request::AlexaApiRequest, response};
+
+pub mod alexa;
 
 // Constants
 const ALEXA_AI_DEFAULT_HOST: &str = "0.0.0.0";
 const ALEXA_AI_DEFAULT_PORT: u16 = 9090;
-
-#[derive(Debug, Deserialize, Serialize)]
-struct AlexaRequest {
-  version: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct AlexaResponse {
-  version: String,
-  response: AlexaReponseData,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct AlexaReponseData {
-  #[serde(rename = "outputSpeech")]
-  output_speech: AlexaResponseOutputSpeech,
-  #[serde(rename = "shouldEndSession")]
-  should_end_session: bool,
-  #[serde(rename = "sessionAttributes")]
-  session_attrs: Option<AlexaResponseSessionAttrs>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct AlexaResponseOutputSpeech {
-  #[serde(rename = "type")]
-  reponse_type: String,
-  ssml: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct AlexaResponseSessionAttrs {
-  index: String,
-}
+const ALEXA_AI_MAX_WORKERS: usize = 4;
 
 #[post("/")]
-async fn alexa_main(payload: actix_web::web::Json<AlexaRequest>) -> HttpResponse {
-  let resp = AlexaResponse {
-    version: "1.0".into(),
-    response: AlexaReponseData {
-      output_speech: AlexaResponseOutputSpeech {
-        reponse_type: "SSML".into(),
-        ssml: "<speak>Quero comer bananas e peidar todo o dia.</speak>".into(),
-      },
-      should_end_session: false,
-      session_attrs: None,
-    },
+async fn alexa_main(payload: String) -> HttpResponse {
+  let request: serde_json::Value =
+    serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+  let pretty: String = serde_json::to_string_pretty(&request).unwrap_or("null".into());
+
+  log::info!("got payload: {}", pretty);
+
+  let mut resp: alexa::response::ApiResponse = alexa::response::ApiResponse::default();
+  resp.response.should_end_session = true;
+
+  let _: AlexaApiRequest = match serde_json::from_str(&payload) {
+    Ok(r) => r,
+    Err(e) => {
+      log::error!("error while parsing request: {}", e);
+
+      resp.response.output_speech = alexa::response::OutputSpeech::new()
+        .with_ssml("<speak>Mas é um peidão mesmo vai se lascar peida mesmo!</speak>");
+
+      return HttpResponse::Ok().json(resp);
+    }
   };
 
-  log::info!("got payload: {:?}", payload.0);
+  resp.response = response::AlexaResponse::new_with_ssml(
+    "<speak>Parabéns! Você acessou sua nova skill chega hoje! Agora, trate de despejar suas fezes o quanto antes.</speak>",
+  ).with_reprompt_text("O que você quer fazer agora chega hoje?");
 
   HttpResponse::Ok().json(resp)
 }
@@ -67,6 +45,7 @@ async fn alexa_main(payload: actix_web::web::Json<AlexaRequest>) -> HttpResponse
 async fn main() -> Result<(), Box<dyn Error>> {
   let mut http_host: String = String::from(ALEXA_AI_DEFAULT_HOST);
   let mut http_port: u16 = ALEXA_AI_DEFAULT_PORT;
+  let mut workers: usize = ALEXA_AI_MAX_WORKERS;
 
   // initialize logger
   env_logger::init_from_env(Env::new().filter("ALEXA_AI_LOG").default_filter_or("info"));
@@ -84,22 +63,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
           http_port = p.parse::<u16>().unwrap_or(ALEXA_AI_DEFAULT_PORT);
         }
       }
+      "--workers" => {
+        if let Some(w) = iter.next() {
+          workers = w.parse::<usize>().unwrap_or(ALEXA_AI_MAX_WORKERS);
+        }
+      }
       _ => {}
     }
   }
 
   let addr = format!("{}:{}", http_host, http_port);
-
-  log::info!("http_host: {}", http_host);
-  log::info!("http_port: {}", http_port);
-  log::info!("address: {}", addr);
-
   let address: std::net::SocketAddr = std::net::SocketAddr::from_str(&addr)?;
 
-  log::info!("using address: {}", address);
+  log::info!("address ..... {}", address);
+  log::info!("workers ..... {}", workers);
 
   let server = HttpServer::new(|| App::new().service(alexa_main))
-    .workers(4)
+    .workers(workers)
     .bind(address)?;
 
   log::info!("listening on {}:{}", http_host, http_port);
