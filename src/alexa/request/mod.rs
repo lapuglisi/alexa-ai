@@ -2,17 +2,58 @@ use serde::{Deserialize, Serialize};
 
 type GenericField = serde_json::Value;
 
+mod launch;
+
+#[derive(Debug, Deserialize, Serialize)]
+enum RequestType {
+  LaunchRequest,
+  IntentRequest,
+  CanCagarIntentRequest,
+  SessionEndedRequest,
+  Generic,
+}
+
+impl std::fmt::Display for RequestType {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", self)
+  }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GenericRequest {
-  #[serde(rename = "type")]
-  request_type: String,
+  pub request_type: RequestType,
+  pub id: String,
+  pub timestamp: String,
+  pub locale: String,
+}
 
-  #[serde(rename = "requestId")]
-  id: String,
+pub trait GenericRequestImpl {
+  fn request_type() -> RequestType {
+    RequestType::Generic
+  }
 
-  timestamp: String,
+  fn id(&self) -> String {
+    String::new()
+  }
 
-  locale: String,
+  fn timestamp(&self) -> String {
+    String::new()
+  }
+
+  fn locale(&self) -> String {
+    "pt-BR".into()
+  }
+}
+
+impl Default for GenericRequest {
+  fn default() -> Self {
+    Self {
+      request_type: RequestType::Generic,
+      id: String::new(),
+      timestamp: String::new(),
+      locale: String::from("pt-BR"),
+    }
+  }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -86,5 +127,5 @@ pub struct AlexaApiRequest {
   version: String,
   session: _RequestSession,
   context: _RequestContext,
-  /*request: _AlexaRequest,*/
+  request: GenericField,
 }

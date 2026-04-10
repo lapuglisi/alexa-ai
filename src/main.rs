@@ -35,7 +35,7 @@ async fn alexa_main(payload: String) -> HttpResponse {
   };
 
   resp.response = response::AlexaResponse::new_with_ssml(
-    "<speak>Parabéns! Você acessou sua nova skill chega hoje! Agora, trate de despejar suas fezes o quanto antes.</speak>",
+    "<speak>Parabéns! A Vanessa Martinuzzo Puglísi gosta mesmo é da mandioca estratosférica! Sim, a Vanessa senta com propriedade e lascivia!.</speak>",
   ).with_reprompt_text("O que você quer fazer agora chega hoje?");
 
   HttpResponse::Ok().json(resp)
