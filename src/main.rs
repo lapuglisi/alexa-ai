@@ -18,13 +18,44 @@ struct AlexaRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct AlexaResponse {
-  result: String,
+  version: String,
+  response: AlexaReponseData,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AlexaReponseData {
+  #[serde(rename = "outputSpeech")]
+  output_speech: AlexaResponseOutputSpeech,
+  #[serde(rename = "shouldEndSession")]
+  should_end_session: bool,
+  #[serde(rename = "sessionAttributes")]
+  session_attrs: Option<AlexaResponseSessionAttrs>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AlexaResponseOutputSpeech {
+  #[serde(rename = "type")]
+  reponse_type: String,
+  ssml: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AlexaResponseSessionAttrs {
+  index: String,
 }
 
 #[post("/")]
 async fn alexa_main(payload: actix_web::web::Json<AlexaRequest>) -> HttpResponse {
   let resp = AlexaResponse {
-    result: "Busco sexo".into(),
+    version: "1.0".into(),
+    response: AlexaReponseData {
+      output_speech: AlexaResponseOutputSpeech {
+        reponse_type: "SSML".into(),
+        ssml: "<speak>Quero comer bananas e peidar todo o dia.</speak>".into(),
+      },
+      should_end_session: false,
+      session_attrs: None,
+    },
   };
 
   log::info!("got payload: {:?}", payload.0);
