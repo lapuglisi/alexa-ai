@@ -2,9 +2,8 @@ use actix_web::{App, HttpResponse, HttpServer, post};
 use env_logger::Env;
 use std::{env, error::Error, str::FromStr};
 
-use alexa::{request::AlexaApiRequest, response};
-
-pub mod alexa;
+mod alexa;
+use alexa::request;
 
 // Constants
 const ALEXA_AI_DEFAULT_HOST: &str = "0.0.0.0";
@@ -13,32 +12,17 @@ const ALEXA_AI_MAX_WORKERS: usize = 4;
 
 #[post("/")]
 async fn alexa_main(payload: String) -> HttpResponse {
-  let request: serde_json::Value =
-    serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
-  let pretty: String = serde_json::to_string_pretty(&request).unwrap_or("null".into());
-
-  log::info!("got payload: {}", pretty);
-
-  let mut resp: alexa::response::ApiResponse = alexa::response::ApiResponse::default();
-  resp.response.should_end_session = true;
-
-  let _: AlexaApiRequest = match serde_json::from_str(&payload) {
+  let request: request::AlexaApiRequest = match serde_json::from_str(&payload) {
     Ok(r) => r,
     Err(e) => {
       log::error!("error while parsing request: {}", e);
-
-      resp.response.output_speech = alexa::response::OutputSpeech::new()
-        .with_ssml("<speak>Mas é um peidão mesmo vai se lascar peida mesmo!</speak>");
-
-      return HttpResponse::Ok().json(resp);
+      return HttpResponse::InternalServerError().body("asdasd");
     }
   };
 
-  resp.response = response::AlexaResponse::new_with_ssml(
-    "<speak>Parabéns! A Vanessa Martinuzzo Puglísi gosta mesmo é da mandioca estratosférica! Sim, a Vanessa senta com propriedade e lascivia!.</speak>",
-  ).with_reprompt_text("O que você quer fazer agora chega hoje?");
+  let response = alexa::request::api::alexa_request(request).await;
 
-  HttpResponse::Ok().json(resp)
+  HttpResponse::Ok().json(response)
 }
 
 #[actix_web::main]
@@ -82,6 +66,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .workers(workers)
     .bind(address)?;
 
+  println!("listening on {}:{}", http_host, http_port);
   log::info!("listening on {}:{}", http_host, http_port);
 
   match server.run().await {

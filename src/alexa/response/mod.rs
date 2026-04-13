@@ -76,7 +76,7 @@ impl OutputSpeech {
 
   pub fn with_ssml(mut self, ssml: &str) -> Self {
     self.speech_type = OutputSpeechType::SSML;
-    self.ssml = Some(ssml.into());
+    self.ssml = Some(format!("<speak>{}</speak>", ssml));
     self
   }
 
@@ -147,19 +147,41 @@ impl AlexaResponse {
     self.reprompt = Some(ResponseReprompt::new(OutputSpeech::new().with_text(text)));
     self
   }
+
+  pub fn with_ssml(mut self, ssml: &str) -> Self {
+    self.output_speech = OutputSpeech::new().with_ssml(ssml);
+    self
+  }
+
+  pub fn with_text(mut self, text: &str) -> Self {
+    self.output_speech = OutputSpeech::new().with_text(text);
+    self
+  }
+
+  pub fn should_end_session(mut self, end: bool) -> Self {
+    self.should_end_session = end;
+    self
+  }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ApiResponse {
+pub struct AlexaApiResponse {
   pub version: String,
   pub response: AlexaResponse,
 }
 
-impl Default for ApiResponse {
+impl Default for AlexaApiResponse {
   fn default() -> Self {
     Self {
       version: "1.0".into(),
       response: AlexaResponse::default(),
     }
+  }
+}
+
+impl AlexaApiResponse {
+  pub fn with_response(mut self, response: AlexaResponse) -> Self {
+    self.response = response;
+    self
   }
 }

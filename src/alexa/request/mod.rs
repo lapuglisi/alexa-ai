@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 type GenericField = serde_json::Value;
 
+pub mod api;
 mod launch;
+mod intent;
 
 #[derive(Debug, Deserialize, Serialize)]
 enum RequestType {
@@ -16,6 +18,22 @@ enum RequestType {
 impl std::fmt::Display for RequestType {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{:?}", self)
+  }
+}
+
+impl std::str::FromStr for RequestType {
+  type Err = RequestType;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s {
+      "LaunchRequest" => Ok(Self::LaunchRequest),
+      "IntentRequest" => Ok(Self::IntentRequest),
+      "SessionEndedRequest" => Ok(Self::SessionEndedRequest),
+      _ => {
+        log::info!("RequestType::FromStr({}) fell back to Generic", s);
+        Ok(Self::Generic)
+      }
+    }
   }
 }
 
