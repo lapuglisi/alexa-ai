@@ -3,6 +3,7 @@ use crate::alexa::{
   response::{AlexaApiResponse, AlexaResponse},
 };
 use reqwest::{Client};
+use serde_json::json;
 use std::{error::Error, time::Duration};
 use std::str::FromStr;
 
@@ -41,9 +42,9 @@ pub async fn alexa_request(request: AlexaApiRequest) -> AlexaApiResponse {
 }
 
 fn handle_launch_request(_: AlexaApiRequest) -> AlexaApiResponse {
-	let ssml = "Bem vindo ao Sero Miners enterprises. O que você busca hoje?";
+	let ssml = "Bem vindo ao Sero Miners enterprises. O que você busca?";
 
-	let response = AlexaResponse::new_with_ssml(ssml).with_reprompt_ssml("Ss respostas válidas são: Busco algo ou busque algo.");
+	let response = AlexaResponse::new_with_ssml(ssml).with_reprompt_ssml("As respostas válidas são: Busco algo ou busque algo.");
 	
 	AlexaApiResponse::default()
     .with_response(AlexaResponse::new_with_ssml(ssml).should_end_session(false))
@@ -68,12 +69,21 @@ async fn handle_intent_request(request: AlexaApiRequest) -> Result<AlexaApiRespo
 				.expect("could not handle intent request");
 
 			log::info!("got response from rsrag: {}", s);
-
 			
-			response.with_text(&s).should_end_session(false)
+			let json: serde_json::Value = serde_json::from_str::<serde_json::Value>(&s)?;
+
+			let mut result = json.get("choices").expect("no choices found in response")
+				.get(0).expect("no choices found")
+				.get("message").expect("no message found in response")
+				.get("content").expect("no content found in response").to_string();
+
+			result = result.replace("\\\"", "'");
+			log::info!("got result from API response: {}", result);
+			
+			response.with_text(&result).should_end_session(false)
 		},
 		_ => {
-			response.with_text("quero fazer alugma coisa lokas")
+			response.with_text("quero fazer alguma coisa lokas chega hoje")
 		}
 	};
 
@@ -84,24 +94,19 @@ async fn handle_intent_request(request: AlexaApiRequest) -> Result<AlexaApiRespo
 async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<dyn Error>> {
 
 	let a = intent.get_slot("user_query").expect("user_query not provided");
-	let b = intent.get_slot("query_type").expect("query_type not providede");
 
-	let query_type = b.value().expect("query_type must not be empty");
 	let user_query = a.value().expect("user_query must not be empty");
 
-	let query = AiApiRequest {
-		model: "default".into(),
-		prompt: user_query,
-		n_predict: match query_type.as_str() {
-			"simples" => 128,
-			"normal" => 256,
-			"expert" => 512,
-			_ => 64
-		},
-		temperature: 0.2
-	};
+	let json = json!({
+		"model":  "default",
+		"prompt": format!("{}. ## responda em portugues ##", user_query),
+		"n_predict": -1,
+		"temperature": 1.0,
+		"db_limit": 1,
+		"rag_strategy": "no-colbert-dbsf"
+	});
 	
-	let body = serde_json::to_string(&query)?;
+	let body = serde_json::to_string(&json)?;
 
 	log::info!("sending query to rsrag: {}", body);
 
@@ -109,7 +114,6 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
 		.post("http://localhost:9091/api/completion")
 		.body(body)
 		.header("Content-Type", "application/json")
-		.timeout(Duration::from_secs(5))
 		.send()
 		.await?;
 
