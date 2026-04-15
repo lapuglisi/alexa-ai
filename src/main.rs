@@ -11,8 +11,7 @@ const ALEXA_AI_DEFAULT_PORT: u16 = 9090;
 const ALEXA_AI_MAX_WORKERS: usize = 4;
 
 #[post("/")]
-async fn alexa_main(payload: String) -> HttpResponse {
-  let request: request::AlexaApiRequest = match serde_json::from_str(&payload) {
+async fn alexa_main(payload: String) -> HttpResponse {  let request: request::AlexaApiRequest = match serde_json::from_str(&payload) {
     Ok(r) => r,
     Err(e) => {
       log::error!("error while parsing request: {}", e);
