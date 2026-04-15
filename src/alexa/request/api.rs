@@ -7,8 +7,11 @@ use crate::alexa::{
 };
 use reqwest::Client;
 use serde_json::json;
+use std::error::Error;
 use std::str::FromStr;
-use std::{error::Error, time::Duration};
+use std::sync::{LazyLock, Mutex};
+
+static LISTA_COMPRAS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct AiApiRequest {
@@ -79,22 +82,7 @@ async fn handle_intent_request(
       let s = match hangle_get_ai_completion(intent).await {
         Ok(v) => {
           log::info!("got response from rsrag: {}", v);
-
-          let json = serde_json::from_str::<serde_json::Value>(&v)?;
-          let result = json
-            .get("choices")
-            .expect("no choices found")
-            .get(0)
-            .expect("no choices found")
-            .get("message")
-            .expect("no message found in response")
-            .get("content")
-            .expect("no content found in response")
-            .to_string()
-            .replace("\\\"", "'")
-						.replace("\\n", "\n");
-
-          result
+					v
         }
         Err(e) => {
           format!("{}", e)
@@ -110,8 +98,71 @@ async fn handle_intent_request(
         "Obrigado por utilizar os serviços da busco chega hoje facilities enterprises frete grátis!",
       )
       .should_end_session(true),
+		"GetListaCompras" => {
+			let lista = LISTA_COMPRAS.lock().unwrap();
+
+			let text = if lista.len() == 0 {
+				"Sua lista de compras está vazia.".into()
+			} else {
+				format!("Sua lista de compras é: {}", lista.join(","))
+			};
+
+			response
+				.with_text(&text)
+				.should_end_session(false)
+		},
+		"AddListaCompras"=>{
+			let s = match intent.get_slot("nova_compra") {
+				Some(c) => {
+					let item = c.value().unwrap();
+					match LISTA_COMPRAS.lock().as_mut() {
+						Ok(v) => {
+							v.push(item.clone());
+							format!("Item {} adicionado a sua lista com sucesso.", &item)
+						},
+						Err(_) => {
+							format!("Não foi possível adicionar {} a sua lista. Tente na páscoa.", item)
+						}
+					}
+				}
+				None => {
+					format!("Quer adicionar o que na lista de compras, vacilão?")
+				}
+			};
+			response
+				.with_text(&s)
+				.with_reprompt_text("que mais precisas oh amigo?")
+		},
+		"LimparListaCompras" => {
+			let v = intent.get_slot("item_compra");
+			if v.is_none() {
+				LISTA_COMPRAS.lock().unwrap().clear();
+
+				response.with_text("Lista de compras zerada!")
+			} else {
+				let s = v.unwrap().value().unwrap();
+				let mut text = format!("Item {} não encontrado na lista de compras.", s);
+
+				let mut lista = LISTA_COMPRAS.lock().unwrap();
+
+				for (index, item) in lista.iter().enumerate() {
+					if item.to_lowercase() == s.to_lowercase() {
+						lista.remove(index);
+						text = format!("Item {} removido da lista com sucesso chega hoje!", s);
+						break;
+					}
+				}
+
+				response.with_text(&text)
+			}
+		},
+		"UserIsChapado" => {
+			response
+				.with_ssml("<amazon:emotion name='excited' intensity='high'>Aí entende rápido hein!</amazon:emotion>")
+				.with_reprompt_text("você ainda quer alguma coisa?")
+		}
     _ => response
-      .with_text("quero fazer alguma coisa chega hoje busco nearby")
+      .with_text("Pede o que você quer direito, cabeção.")
       .should_end_session(true),
   };
 
@@ -131,14 +182,14 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
   let re = regex::Regex::new("(ão|ao)+[!\\.]?$").unwrap();
 
   if re.is_match(&lower) {
-    Err(format!("Então... meu pau na sua mão."))?
+    return Ok("Meu pau na sua mão.".into());
   }
 
   if regex::Regex::new("(cala|calar).*(boca)")
     .unwrap()
     .is_match(&lower)
   {
-    Err("calar a boquinha já morreu, senta com força e pega no meu.")?
+    return Ok("calar a boquinha já morreu, senta com força e pega no meu.".into());
   }
 
   let json = json!({
@@ -150,7 +201,7 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     "threshold": 0.9,
     "rag_strategy": "main-colbert",
     "db_collection": "alexa-rsrag-text-main",
-    "system_prompt": "You are a help assistant who provides concise and precise answers."
+    "system_prompt": "You are a help assistant who provides concise and precise answers. Make sure to answer using only the context information"
   });
 
   let body = serde_json::to_string(&json)?;
@@ -163,14 +214,28 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     .header("Content-Type", "application/json")
     .send()
     .await
-    .map_err(|_| format!("A inteligência artificial não quier responder sua pergunta agora."))?;
+    .map_err(|_| format!("A inteligência artificial não quer responder sua pergunta agora."))?;
 
-  Ok(client.text().await.map_err(|_| {
-    format!(
-      "A IA não souve responder a sua pergunta '{}'. Porque ela não é tão inteligente assim.",
-      user_query
-    )
-  })?)
+  let v = client
+    .text()
+    .await
+    .expect("A IA não soube resonder. Se ela não sabe, nem eu sei.");
+
+  let json = serde_json::from_str::<serde_json::Value>(&v)?;
+  let result = json
+    .get("choices")
+    .expect("IA burra nao sabe responder.")
+    .get(0)
+    .expect("IA burra não sabe responder.")
+    .get("message")
+    .expect("no message found in response")
+    .get("content")
+    .expect("no content found in response")
+    .to_string()
+    .replace("\\\"", "'")
+    .replace("\\n", "\n");
+
+  Ok(result)
 }
 
 fn get_full_query(input: &str, locale: &str) -> String {
