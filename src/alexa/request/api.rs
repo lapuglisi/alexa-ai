@@ -1,7 +1,7 @@
 use crate::alexa::{
   request::{
-    self, AlexaApiRequest, RequestType,
-    intent::{self, IntentRequest, IntentRequestSlot},
+    AlexaApiRequest, RequestType,
+    intent::{self, IntentRequest},
     presets,
   },
   response::{AlexaApiResponse, AlexaResponse},
@@ -16,14 +16,6 @@ use std::{
 };
 
 static LISTA_COMPRAS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct AiApiRequest {
-  prompt: String,
-  n_predict: u64,
-  temperature: f64,
-  model: String,
-}
 
 pub async fn alexa_request(request: AlexaApiRequest) -> AlexaApiResponse {
   log::info!("got request: {:?}", request.request);
@@ -40,7 +32,7 @@ pub async fn alexa_request(request: AlexaApiRequest) -> AlexaApiResponse {
   let response = match rt {
     RequestType::LaunchRequest => handle_launch_request(request),
     RequestType::SessionEndedRequest => AlexaApiResponse::default().with_response(
-      AlexaResponse::new_with_ssml("Aquele abraço então caro colega!").should_end_session(true),
+      AlexaResponse::new_with_ssml("Aquele abraço então caro colega!").should_end_session(false),
     ),
     RequestType::IntentRequest => handle_intent_request(request)
       .await
@@ -50,6 +42,8 @@ pub async fn alexa_request(request: AlexaApiRequest) -> AlexaApiResponse {
         .should_end_session(true),
     ),
   };
+
+  log::info!("sending alexa response: {:?}", response);
 
   response
 }
