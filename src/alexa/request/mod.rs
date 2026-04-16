@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 type GenericField = serde_json::Value;
 
 pub mod api;
-mod launch;
 mod intent;
+mod launch;
+mod presets;
 
 #[derive(Debug, Deserialize, Serialize)]
 enum RequestType {

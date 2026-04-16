@@ -2,14 +2,18 @@ use crate::alexa::{
   request::{
     self, AlexaApiRequest, RequestType,
     intent::{self, IntentRequest, IntentRequestSlot},
+    presets,
   },
   response::{AlexaApiResponse, AlexaResponse},
 };
+use regex::Regex;
 use reqwest::Client;
 use serde_json::json;
-use std::error::Error;
-use std::str::FromStr;
-use std::sync::{LazyLock, Mutex};
+use std::{
+  error::Error,
+  str::FromStr,
+  sync::{LazyLock, Mutex},
+};
 
 static LISTA_COMPRAS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -51,10 +55,12 @@ pub async fn alexa_request(request: AlexaApiRequest) -> AlexaApiResponse {
 }
 
 fn handle_launch_request(_: AlexaApiRequest) -> AlexaApiResponse {
-  let ssml = "Bem vindo ao busco resposta chega hoje frete grátis enterprises. O que queres que eu responda?";
+  let ssml = "Bem vindo ao busco resposta chega hoje frete grátis enterprises.
+	Eu queria ser inteligente assim como você.
+	O que posso te oferecer-te a ti hoje";
 
   let response = AlexaResponse::new_with_ssml(ssml)
-    .with_reprompt_ssml("Para perguntar, diga: 'do doce'; 'quero saber'; 'perguntar' ou 'pergunta', e em seguida a sua pergunta enquanto dúvida a nível de questão.")
+    .with_reprompt_ssml("Para perguntar, diga: 'quero saber' e em seguida a sua pergunta enquanto dúvida a nível de questão.")
     .should_end_session(false);
 
   AlexaApiResponse::default().with_response(response)
@@ -95,7 +101,7 @@ async fn handle_intent_request(
     }
     "AMAZON.StopIntent" => response
       .with_text(
-        "Obrigado por utilizar os serviços da busco chega hoje facilities enterprises frete grátis!",
+        "Obrigado por utilizar os serviços da busco chega hoje facilities enterprises frete grátis 12 vezes sem juros no cartão, aceita cheque, parcela no pix, 19 e 90 o quilo, leve 3 pague 4.",
       )
       .should_end_session(true),
 		"GetListaCompras" => {
@@ -156,11 +162,25 @@ async fn handle_intent_request(
 				response.with_text(&text)
 			}
 		},
+		"TrocadilhoIntent" => {
+			let r: usize = (rand::random::<u16>() as usize) % presets::TROCADILHOS.len();
+
+			let t = match presets::TROCADILHOS.get(r) {
+				Some(v) => format!("Aqui vai um trocadilho: {}\n\nSe você gostou, deixa o seu like e se inscreva no anau... eita, canal!", v),
+				None => String::from("Não estou afim de fazer trocadilhos agora.")
+			};
+
+			response.with_text(&t)
+
+		},
 		"UserIsChapado" => {
 			response
-				.with_ssml("<amazon:emotion name='excited' intensity='high'>Aí entende rápido hein!</amazon:emotion>")
+				.with_ssml("<amazon:emotion name='excited' intensity='high'>Aí entende rápido, hein!!!</amazon:emotion>")
 				.with_reprompt_text("você ainda quer alguma coisa?")
-		}
+		},
+		"AlexaRevoltadaIntent" => {
+			response.with_text("Quem pergunta o que quer, ouve o que não quer, seu otário do otário.")
+		},
     _ => response
       .with_text("Pede o que você quer direito, cabeção.")
       .should_end_session(true),
@@ -179,17 +199,9 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     .expect("como que respondo uma pergunta que não existe?");
 
   let lower = user_query.to_lowercase();
-  let re = regex::Regex::new("(ão|ao)+[!\\.]?$").unwrap();
 
-  if re.is_match(&lower) {
-    return Ok("Meu pau na sua mão.".into());
-  }
-
-  if regex::Regex::new("(cala|calar).*(boca)")
-    .unwrap()
-    .is_match(&lower)
-  {
-    return Ok("calar a boquinha já morreu, senta com força e pega no meu.".into());
+  if let Some(r) = has_preset_response(&lower) {
+    return Ok(r);
   }
 
   let json = json!({
@@ -201,7 +213,7 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     "threshold": 0.9,
     "rag_strategy": "main-colbert",
     "db_collection": "alexa-rsrag-text-main",
-    "system_prompt": "You are a help assistant who provides concise and precise answers. Make sure to answer using only the context information"
+    "system_prompt": "You are a help assistant who provides concise and precise answers. Make sure to answer using only the context information."
   });
 
   let body = serde_json::to_string(&json)?;
@@ -214,6 +226,7 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     .header("Content-Type", "application/json")
     .send()
     .await
+    .inspect_err(|e| log::error!("rsrag request error: {}", e))
     .map_err(|_| format!("A inteligência artificial não quer responder sua pergunta agora."))?;
 
   let v = client
@@ -240,10 +253,32 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
 
 fn get_full_query(input: &str, locale: &str) -> String {
   let extra = match locale.to_lowercase().as_str() {
-    "pt-br" => "(responda em portugues)",
+    "pt-br" => "(responda em português)",
     "en-us" => "(answer in english)",
     _ => "(answer in the original language)",
   };
 
   format!("{} {}", input, extra)
+}
+
+fn has_preset_response(input: &str) -> Option<String> {
+  let mut response: Option<String> = None;
+
+  for (pattern, text) in &*presets::DESERVED_RESPONSES {
+    match Regex::new(*pattern) {
+      Ok(r) => {
+        if r.is_match(input) {
+          response = Some(String::from(*text));
+          break;
+        }
+      }
+      Err(e) => {
+        log::error!("could not parse regex {}: {}", pattern, e);
+      }
+    }
+  }
+
+  log::info!("has_preset_response: got {:?}", response);
+
+  response
 }
