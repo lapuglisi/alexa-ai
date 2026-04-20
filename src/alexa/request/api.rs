@@ -205,7 +205,7 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     "temperature": 0.1,
     "db_limit": 1,
     "threshold": 0.9,
-    "rag_strategy": "main-colbert",
+    "rag_strategy": "no-colbert-dbsf",
     "db_collection": "alexa-rsrag-text-main",
     "system_prompt": "You are a help assistant who provides concise and precise answers. Make sure to answer using only the context information."
   });
