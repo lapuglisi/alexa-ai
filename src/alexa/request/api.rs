@@ -27,6 +27,9 @@ const ALEXAAI_RAG_TEMPERATURE: f32 = 0.5;
 const ALEXAAI_RAG_DB_LIMIT: i32 = 1;
 const ALEXAAI_RAG_THRESHOLD: f32 = 0.9;
 const ALEXAAI_RAG_TOP_P: f32 = 0.5;
+const ALEXAAI_RAG_TOP_K: i32 = 40;
+const ALEXAAI_RAG_MAX_TOKENS: i32 = 4096;
+const ALEXAAI_RAG_REP_PENALTY: f32 = 1.0;
 
 const ALEXAAI_RAG_MODEL: &str = "default";
 const ALEXAAI_RAG_STRATEGY: &str = "no-colbert-dbsf";
@@ -40,9 +43,12 @@ pub struct AlexaAiRagParams {
   db_limit: i32,
   threshold: f32,
   top_p: f32,
+  top_k: i32,
   rag_strategy: String,
   db_collection: String,
   system_prompt: String,
+  repetition_penalty: f32,
+  max_completion_tokens: i32,
 }
 
 fn env_or_default(key: &str, default: &str) -> String {
@@ -74,6 +80,17 @@ pub fn load_rag_parameters(params: &mut AlexaAiRagParams) {
   params.db_limit = env_or_default("ALEXAAI_RAG_DB_LIMIT", &ALEXAAI_RAG_DB_LIMIT.to_string())
     .parse::<i32>()
     .unwrap_or(ALEXAAI_RAG_DB_LIMIT);
+
+  params.top_k = env_or_default("ALEXAAI_RAG_TOP_K", &ALEXAAI_RAG_TOP_K.to_string())
+    .parse::<i32>()
+    .unwrap_or(ALEXAAI_RAG_TOP_K);
+
+  params.max_completion_tokens = env_or_default(
+    "ALEXAAI_RAG_MAX_TOKENS",
+    &ALEXAAI_RAG_MAX_TOKENS.to_string(),
+  )
+  .parse::<i32>()
+  .unwrap_or(ALEXAAI_RAG_MAX_TOKENS);
 }
 
 static LISTA_COMPRAS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
@@ -273,6 +290,8 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     "db_limit": params.db_limit,
     "threshold": params.threshold,
     "top_p": params.top_p,
+    "top_k": params.top_k,
+    "max_completion_tokens": params.max_completion_tokens,
     "rag_strategy": params.rag_strategy,
     "db_collection": params.db_collection,
     "system_prompt": params.system_prompt
