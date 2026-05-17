@@ -6,14 +6,75 @@ use crate::alexa::{
   },
   response::{AlexaApiResponse, AlexaResponse},
 };
+use actix_web::cookie::time::format_description::parse;
 use regex::Regex;
 use reqwest::Client;
+use serde::Serialize;
 use serde_json::json;
 use std::{
+  default,
   error::Error,
+  ffi::OsString,
   str::FromStr,
   sync::{LazyLock, Mutex},
 };
+
+// This struct holds information for rag requests
+//
+// Defining defaults
+//
+const ALEXAAI_RAG_TEMPERATURE: f32 = 0.5;
+const ALEXAAI_RAG_DB_LIMIT: i32 = 1;
+const ALEXAAI_RAG_THRESHOLD: f32 = 0.9;
+const ALEXAAI_RAG_TOP_P: f32 = 0.5;
+
+const ALEXAAI_RAG_MODEL: &str = "default";
+const ALEXAAI_RAG_STRATEGY: &str = "no-colbert-dbsf";
+const ALEXAAI_RAG_DB_COLLECTION: &str = "alexa-rsrag-text-main";
+const ALEXAAI_RAG_SYSTEM_PROMPT: &str = "You are a help assistant who provides concise and precise answers. Make sure to answer using only the context information.";
+
+#[derive(Debug, Default, Serialize)]
+pub struct AlexaAiRagParams {
+  model: String,
+  temperature: f32,
+  db_limit: i32,
+  threshold: f32,
+  top_p: f32,
+  rag_strategy: String,
+  db_collection: String,
+  system_prompt: String,
+}
+
+fn env_or_default(key: &str, default: &str) -> String {
+  std::env::var(key).unwrap_or(default.to_string())
+}
+
+pub fn load_rag_parameters(params: &mut AlexaAiRagParams) {
+  params.model = env_or_default("ALEXAAI_RAG_MODEL", ALEXAAI_RAG_MODEL);
+  params.rag_strategy = env_or_default("ALEXAAI_RAG_STRATEGY", ALEXAAI_RAG_STRATEGY);
+  params.db_collection = env_or_default("ALEXAAI_RAG_DB_COLLECTION", ALEXAAI_RAG_DB_COLLECTION);
+  params.system_prompt = env_or_default("ALEXAAI_RAG_SYSTEM_PROMPT", ALEXAAI_RAG_SYSTEM_PROMPT);
+
+  // float values
+  params.threshold = env_or_default("ALEXAAI_RAG_THRESHOLD", &ALEXAAI_RAG_THRESHOLD.to_string())
+    .parse::<f32>()
+    .unwrap_or(ALEXAAI_RAG_THRESHOLD);
+
+  params.top_p = env_or_default("ALEXAAI_RAG_TOP_P", &ALEXAAI_RAG_TOP_P.to_string())
+    .parse::<f32>()
+    .unwrap_or(ALEXAAI_RAG_TOP_P);
+
+  params.temperature = env_or_default(
+    "ALEXAAI_RAG_TEMPERATURE",
+    &ALEXAAI_RAG_TEMPERATURE.to_string(),
+  )
+  .parse::<f32>()
+  .unwrap_or(ALEXAAI_RAG_TEMPERATURE);
+
+  params.db_limit = env_or_default("ALEXAAI_RAG_DB_LIMIT", &ALEXAAI_RAG_DB_LIMIT.to_string())
+    .parse::<i32>()
+    .unwrap_or(ALEXAAI_RAG_DB_LIMIT);
+}
 
 static LISTA_COMPRAS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -50,8 +111,8 @@ pub async fn alexa_request(request: AlexaApiRequest) -> AlexaApiResponse {
 
 fn handle_launch_request(_: AlexaApiRequest) -> AlexaApiResponse {
   let ssml = "Bem vindo ao busco resposta chega hoje frete grátis enterprises.
-	Eu queria ser inteligente assim como você.
-	O que posso te oferecer-te a ti hoje";
+Eu queria ser inteligente assim como você.
+O que posso te oferecer-te a ti hoje";
 
   let response = AlexaResponse::new_with_ssml(ssml)
     .with_reprompt_ssml("Para perguntar, diga: 'quero saber' e em seguida a sua pergunta enquanto dúvida a nível de questão.")
@@ -198,16 +259,23 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     return Ok(r);
   }
 
+  // should get parameters from environment | config
+  log::info!("getting RAG params from environment.");
+
+  let mut params: AlexaAiRagParams = AlexaAiRagParams::default();
+  load_rag_parameters(&mut params);
+  log::info!(":: got RAG params: {:?}", params);
+
   let json = json!({
-    "model":  "default",
+    "model":  params.model,
     "prompt": get_full_query(&user_query, &intent.locale),
-    "n_predict": -1,
-    "temperature": 0.1,
-    "db_limit": 1,
-    "threshold": 0.9,
-    "rag_strategy": "no-colbert-dbsf",
-    "db_collection": "alexa-rsrag-text-main",
-    "system_prompt": "You are a help assistant who provides concise and precise answers. Make sure to answer using only the context information."
+    "temperature": params.temperature,
+    "db_limit": params.db_limit,
+    "threshold": params.threshold,
+    "top_p": params.top_p,
+    "rag_strategy": params.rag_strategy,
+    "db_collection": params.db_collection,
+    "system_prompt": params.system_prompt
   });
 
   let body = serde_json::to_string(&json)?;
