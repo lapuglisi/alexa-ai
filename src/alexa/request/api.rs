@@ -17,6 +17,7 @@ use std::{
   ffi::OsString,
   str::FromStr,
   sync::{LazyLock, Mutex},
+  time::Duration,
 };
 
 // This struct holds information for rag requests
@@ -303,6 +304,7 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
 
   let client = Client::new()
     .post("http://localhost:9091/api/completion")
+    .timeout(Duration::from_secs(8))
     .body(body)
     .header("Content-Type", "application/json")
     .send()
@@ -316,20 +318,40 @@ async fn hangle_get_ai_completion(intent: IntentRequest) -> Result<String, Box<d
     .expect("A IA não soube resonder. Se ela não sabe, nem eu sei.");
 
   let json = serde_json::from_str::<serde_json::Value>(&v)?;
-  let result = json
-    .get("choices")
-    .expect("IA burra nao sabe responder.")
-    .get(0)
-    .expect("IA burra não sabe responder.")
-    .get("message")
-    .expect("no message found in response")
-    .get("content")
-    .expect("no content found in response")
-    .to_string()
-    .replace("\\\"", "'")
-    .replace("\\n", "\n");
 
-  Ok(result)
+  // Is it an anthropic-like response?
+  let mut result: String = String::new();
+  if let Some(a) = json["content"].as_array() {
+    for iter in a {
+      if let Some(itype) = iter.get("type") {
+        if itype.as_str().unwrap_or("") == "text" {
+          if let Some(v) = iter.get("text") {
+            result = String::from(v.as_str().unwrap_or(""));
+
+            log::info!("Got result {}", result);
+          }
+        }
+      }
+    }
+  } else {
+    result = json
+      .get("choices")
+      .expect("IA burra nao sabe responder.")
+      .get(0)
+      .expect("IA burra não sabe responder.")
+      .get("message")
+      .expect("no message found in response")
+      .get("content")
+      .expect("no content found in response")
+      .to_string();
+  }
+
+  Ok(
+    result
+      .replace("\\\"", "'")
+      .replace("\\n", "\n")
+      .replace("#", ""),
+  )
 }
 
 fn get_full_query(input: &str, locale: &str) -> String {
@@ -339,7 +361,10 @@ fn get_full_query(input: &str, locale: &str) -> String {
     _ => "(answer in the original language)",
   };
 
-  format!("{} {}", input, extra)
+  format!(
+    "{} {} (answer in a format to be read by alexa; no extra punctuations, no markdown)",
+    input, extra
+  )
 }
 
 fn has_preset_response(input: &str) -> Option<String> {
